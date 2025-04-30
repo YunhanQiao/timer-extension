@@ -78,7 +78,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
   }
   // now show your modal exactly once
   await vscode.window.showErrorMessage(
-    '⏰ Time’s up! Please stop coding now.',
+    '⏰ Time’s up! Please stop coding for current task now. Do not commit any code, this timer will automatically commit all the code for you',
     { modal: true },
     'Ok'   
   );

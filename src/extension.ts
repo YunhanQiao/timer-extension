@@ -93,8 +93,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
     await repo.commit('Auto-commit: time expired', { all: true }); // Commit all changes
     await repo.push(); // Push changes to the remote repository
     installLockout(); // Install the lockout hook
-    await vscode.window.showErrorMessage(
-      '✅ Changes pushed successfully and timer is up. Please stop coding!', { modal: true }, 'Ok');
+    vscode.window.showInformationMessage('✅ All your code has been committed automatically!');
   } catch (err: any) {
     // Log the error for debugging
     console.error('Error during auto-commit:', err);

@@ -76,17 +76,27 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
   clearInterval(timerInterval!);
   statusBar.text = `$(check) 00:00`;
 
+  // Remove the .pause_timer file if it exists
+  const pauseTimerPath = path.join(root, '.pause_timer');
+  if (fs.existsSync(pauseTimerPath)) {
+    fs.unlinkSync(pauseTimerPath);
+  }
+
   try {
     const gitExt = vscode.extensions.getExtension('vscode.git');
     if (!gitExt) throw new Error('Git extension not found');
     const gitApi = gitExt.exports.getAPI(1);
     const repo = gitApi.repositories[0];
+
+    //Commit and push changes
     await repo.add([]); // Stage all changes
     await repo.commit('Auto-commit: time expired', { all: true }); // Commit all changes
     await repo.push(); // Push changes to the remote repository
     installLockout(); // Install the lockout hook
     vscode.window.showInformationMessage('✅ Changes committed and pushed.');
   } catch (err: any) {
+    // Log the error for debugging
+    console.error('Error during auto-commit:', err);
     vscode.window.showErrorMessage(`Auto-commit failed: ${err.message}`);
   }
 }

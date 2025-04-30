@@ -67,20 +67,21 @@ echo "pause" > "${path.join(root, '.pause_timer')}"
 }
 
 async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.ExtensionContext) {
+  // 1. stop the interval right away
+  clearInterval(timerInterval!);
+  statusBar.text = `$(check) 00:00`;
+
+  // 2. show zero time and clear any pause file
+  const pauseTimerPath = path.join(root, '.pause_timer');
+  if (fs.existsSync(pauseTimerPath)) {
+    fs.unlinkSync(pauseTimerPath);
+  }
+  // now show your modal exactly once
   await vscode.window.showErrorMessage(
     '⏰ Time’s up! Please stop coding now.',
     { modal: true },
     'Ok'   
   );
-
-  clearInterval(timerInterval!);
-  statusBar.text = `$(check) 00:00`;
-
-  // Remove the .pause_timer file if it exists
-  const pauseTimerPath = path.join(root, '.pause_timer');
-  if (fs.existsSync(pauseTimerPath)) {
-    fs.unlinkSync(pauseTimerPath);
-  }
 
   try {
     const gitExt = vscode.extensions.getExtension('vscode.git');

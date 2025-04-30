@@ -1,10 +1,10 @@
 {
   "name": "Seal-timer-extension",
-  "displayName": "Seal Timer Extension",
+  "displayName": "Seal Programming Study Extension",
   "description": "Live timer for counting down",
   "publisher": "YunhanQiao",
   "icon": "images/icon.png",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -27,7 +27,7 @@
     "commands": [
       {
         "command": "extension.startTimer",
-        "title": "Start Codespace Timer"
+        "title": "Start Seal extension"
       },
       {
         "command": "extension.pauseTimer",

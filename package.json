@@ -3,7 +3,7 @@
   "displayName": "Seal Timer Extension",
   "description": "Live timer for counting down",
   "publisher": "YunhanQiao",
-  "icon": "images/ChatGPT Image Apr 30, 2025, 10_21_15 AM.png"
+  "icon": "images/ChatGPT Image Apr 30, 2025, 10_21_15 AM.png",
   "version": "0.0.3",
   "engines": {
     "vscode": "^1.99.0"

@@ -62,8 +62,20 @@ function installLockout() {
 function installPostCommitHook(context: vscode.ExtensionContext) {
   const hook = `#!/bin/sh
 echo "pause" > "${path.join(root, '.pause_timer')}"
+code --command "extension.showCompletionMessage"
 `;
   fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
+
+  // Register a command to show the completion message
+  context.subscriptions.push(
+    vscode.commands.registerCommand('extension.showCompletionMessage', async () => {
+      await vscode.window.showInformationMessage(
+        '✅ You have finished this task. Once you are ready, click "Start" to start the next task.',
+        { modal: true },
+        'Start'
+      );
+    })
+  );
 }
 
 async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.ExtensionContext) {

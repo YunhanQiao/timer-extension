@@ -62,20 +62,9 @@ function installLockout() {
 function installPostCommitHook(context: vscode.ExtensionContext) {
   const hook = `#!/bin/sh
 echo "pause" > "${path.join(root, '.pause_timer')}"
-code --command "extension.showCompletionMessage"
+git push origin
 `;
   fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
-
-  // Register a command to show the completion message
-  context.subscriptions.push(
-    vscode.commands.registerCommand('extension.showCompletionMessage', async () => {
-      await vscode.window.showInformationMessage(
-        '✅ You have finished this task. Once you are ready, click "Start" to start the next task.',
-        { modal: true },
-        'Start'
-      );
-    })
-  );
 }
 
 async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.ExtensionContext) {
@@ -158,7 +147,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (fs.existsSync(path.join(root, '.pause_timer'))) {
           fs.unlinkSync(path.join(root, '.pause_timer')); // Remove the trigger file
           timerInterval && clearInterval(timerInterval);
-          await vscode.window.showWarningMessage('✅ Commit code successfully, timer paused. Please continue to push the code', { modal: true }, 'Ok');
+          await vscode.window.showWarningMessage('✅ You code has been pushed successfully, timer paused. Please click the start when you are ready to begin next task', { modal: true }, 'Ok');
           return;
         }
 

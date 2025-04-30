@@ -1,113 +1,173 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 
-let timerStatusBar: vscode.StatusBarItem;
+const root = vscode.workspace.rootPath || '';
+const STATE_FILE = path.join(root, '.timer_state.json');
+const LOCKOUT_HOOK = path.join(root, '.git', 'hooks', 'pre-commit');
+const POSTCOMMIT_HOOK = path.join(root, '.git', 'hooks', 'post-commit');
+const BRANCH_LIMITS: { [key: string]: number } = {
+  main: 6 * 60,
+  tutorial: 15 * 60,
+  addPicture: 30 * 60,
+  addDistance: 30 * 60
+};
+
 let timerInterval: NodeJS.Timeout | undefined;
-let remainingSeconds: number = 0;
 
+interface TimerState {
+  branch: string;
+  elapsed: number;
+  limit: number;
+  startTime: number;
+}
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+function getBranch(): string {
+  try {
+    return execSync('git branch --show-current', { cwd: root }).toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function loadState(): TimerState | null {
+  if (fs.existsSync(STATE_FILE)) {
+    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as TimerState;
+  }
+  return null;
+}
+
+function saveState(st: TimerState) {
+  fs.writeFileSync(STATE_FILE, JSON.stringify(st));
+}
+
+function resetState(branch: string): TimerState {
+  const limit = BRANCH_LIMITS[branch] || 30 * 60;
+  return { branch, elapsed: 0, limit, startTime: Date.now() / 1000 };
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function installLockout() {
+  const hook = `#!/bin/sh\necho \"⛔️ Timer expired—no more commits allowed.\"\nexit 1\n`;
+  fs.writeFileSync(LOCKOUT_HOOK, hook);
+  fs.chmodSync(LOCKOUT_HOOK, 0o755);
+}
+
+function installPostCommitHook(context: vscode.ExtensionContext) {
+  const hook = `#!/bin/sh
+echo "pause" > "${path.join(root, '.pause_timer')}"
+`;
+  fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
+}
+
+async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.ExtensionContext) {
+  const userResponse = await vscode.window.showErrorMessage(
+    '⏰ Time’s up! Please stop coding now.',
+    { modal: false },
+    'Ok'   
+  );
+
+  clearInterval(timerInterval!);
+  statusBar.text = `$(check) 00:00`;
+
+  try {
+    const gitExt = vscode.extensions.getExtension('vscode.git');
+    if (!gitExt) throw new Error('Git extension not found');
+    const gitApi = gitExt.exports.getAPI(1);
+    const repo = gitApi.repositories[0];
+    await repo.add([]); // Stage all changes
+    await repo.commit('Auto-commit: time expired', { all: true }); // Commit all changes
+    await repo.push(); // Push changes to the remote repository
+    installLockout(); // Install the lockout hook
+    vscode.window.showInformationMessage('✅ Changes committed and pushed.');
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Auto-commit failed: ${err.message}`);
+  }
+}
+
 export function activate(context: vscode.ExtensionContext) {
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  context.subscriptions.push(statusBar);
 
-	// Register the Start Timer command
-    const startCmd = vscode.commands.registerCommand('extension.startTimer', async () => {
-        // Prompt the user for a countdown duration (in minutes)
-        const input = await vscode.window.showInputBox({ 
-            prompt: 'Enter countdown duration in minutes', 
-            validateInput: value => {
-                return /^\d+$/.test(value) ? null : 'Please enter a valid number of minutes';
-            }
-        });
-        if (!input) {
-            return; // command was canceled
+  context.subscriptions.push(
+    vscode.commands.registerCommand('extension.startTimer', () => {
+      const branch = getBranch();
+      let st = loadState();
+      if (!st || st.branch !== branch || st.elapsed >= st.limit) {
+        st = resetState(branch);
+      } else {
+        st.startTime = Date.now() / 1000;
+      }
+      saveState(st);
+
+      installPostCommitHook(context);
+
+      timerInterval && clearInterval(timerInterval);
+      timerInterval = setInterval(async () => {
+        const now = Date.now() / 1000;
+        const totalElapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
+        const remaining = st.limit - totalElapsed;
+        saveState({ ...st, elapsed: totalElapsed });
+        statusBar.text = `$(clock) ${formatTime(remaining)}`;
+        statusBar.show();
+
+        // Check for the pause trigger file
+        if (fs.existsSync(path.join(root, '.pause_timer'))) {
+          fs.unlinkSync(path.join(root, '.pause_timer')); // Remove the trigger file
+          timerInterval && clearInterval(timerInterval);
+          vscode.window.showInformationMessage('Commit code successfully, timer paused.');
+          return;
         }
-        const minutes = parseInt(input);
-        startCountdown(minutes);
-    });
-    context.subscriptions.push(startCmd);
 
-    // Create a status bar item to display the timer (left alignment, priority 100)
-    timerStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    timerStatusBar.command = 'extension.startTimer';  // optional: click to restart timer
-    context.subscriptions.push(timerStatusBar);
+        if (remaining <= 300 && remaining > 299) {
+          await vscode.window.showWarningMessage(
+            '⚠️ Only 5 minutes remaining!',
+            { modal: false },
+            'OK'
+          );
+        }
+        if (remaining <= 0) {
+          await onTimerFinished(statusBar, context);
+        }
+      }, 1000);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('extension.pauseTimer', () => {
+      const st = loadState();
+      if (!st) return vscode.window.showInformationMessage('Timer not started.');
+      const now = Date.now() / 1000;
+      const totalElapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
+      saveState({ ...st, elapsed: totalElapsed });
+      timerInterval && clearInterval(timerInterval);
+      statusBar.text = `$(clock) ${formatTime(st.limit - totalElapsed)}`;
+      statusBar.show();
+      vscode.window.showInformationMessage(`⏸️ Timer paused. ${formatTime(st.limit - totalElapsed)} remaining.`);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('extension.showStatus', () => {
+      const st = loadState();
+      if (!st) return vscode.window.showInformationMessage('Timer not started.');
+      const now = Date.now() / 1000;
+      const totalElapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
+      const remaining = st.limit - totalElapsed;
+      const running = !!timerInterval;
+      vscode.window.showInformationMessage(
+        `[${st.branch}] ${running ? 'Running' : 'Paused'} | Remaining: ${formatTime(remaining)}`
+      );
+    })
+  );
 }
 
-function startCountdown(minutes: number) {
-    // If a timer is already running, clear it first
-    if (timerInterval) {
-        clearInterval(timerInterval);
-    }
-    remainingSeconds = minutes * 60;
-    updateStatusBarTime(remainingSeconds);   // initialize display
-
-    timerStatusBar.show();  // make sure the status bar item is visible
-
-    timerInterval = setInterval(async () => {
-        remainingSeconds -= 1;
-        updateStatusBarTime(remainingSeconds);
-
-        if (remainingSeconds === 300) {
-            // 5 minutes remaining -> show warning alert
-            vscode.window.showWarningMessage(`⏳ Only 5 minutes left on the timer!`);
-        }
-
-        if (remainingSeconds <= 0) {
-            // Time is up -> clear timer and trigger commit
-            clearInterval(timerInterval!);
-            timerInterval = undefined;
-            await onTimerFinished();
-        }
-    }, 1000);
+export function deactivate() {
+  timerInterval && clearInterval(timerInterval);
 }
-
-
-function updateStatusBarTime(seconds: number) {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    const timeStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    timerStatusBar.text = `$(clock) ${timeStr}`;
-}
-
-async function onTimerFinished() {
-    timerStatusBar.text = `$(check) 00:00`;  // indicate timer done (for UX)
-    // Optionally, hide the status bar or keep it showing 0:00. We'll pause now.
-
-    // Show a notification that the timer ended and committing is starting
-    vscode.window.showInformationMessage("⏱ Time’s up! Auto-committing changes...");
-
-    try {
-        // Access the Git extension API
-        const gitExt = vscode.extensions.getExtension('vscode.git');
-        if (!gitExt) {
-            throw new Error("Git extension not found");
-        }
-        const gitApi = gitExt.exports.getAPI(1);
-        const repositories = gitApi.repositories;
-        if (repositories.length === 0) {
-            throw new Error("No Git repository open to commit.");
-        }
-
-        const repo = repositories[0];  // assuming a single repo workspace
-        // Stage all changes (this adds tracked files; untracked files will remain untracked 
-        // unless we explicitly add them)
-        await repo.add([]);  // add all changes; passing an empty array stages everything
-        // Commit with a default message
-        const commitMessage = `Auto-commit: Countdown Timer finished at ${new Date().toLocaleTimeString()}`;
-        await repo.commit(commitMessage, { all: true });  // 'all' stages tracked files&#8203;:contentReference[oaicite:8]{index=8}&#8203;:contentReference[oaicite:9]{index=9}
-
-        // Push to remote (assuming the current branch has an upstream configured)
-        await repo.push();
-        vscode.window.showInformationMessage("✅ Changes committed and pushed to GitHub.");
-    } catch (err: any) {
-        console.error(err);
-        vscode.window.showErrorMessage(`Auto-commit failed: ${err.message}`);
-    }
-
-    // Timer is finished; user will need to start it again manually for the next round
-}
-
-
-// This method is called when your extension is deactivated
-export function deactivate() {}

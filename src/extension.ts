@@ -87,12 +87,18 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
     if (!gitExt) throw new Error('Git extension not found');
     const gitApi = gitExt.exports.getAPI(1);
     const repo = gitApi.repositories[0];
+    const branch = repo.state.HEAD!.name!;
 
     //Commit and push changes
+    console.log('⏳ staging…');
     await repo.add([]); // Stage all changes
+    console.log('✅ staged, now committing…');
     await repo.commit('Auto-commit: time expired', { all: true }); // Commit all changes
-    await repo.push(); // Push changes to the remote repository
+    console.log('✅ committed, now pushing…');
+    await repo.push('origin', branch); // Push changes to the remote repository
+    console.log('✅ pushed, now installing lockout hook…');
     installLockout(); // Install the lockout hook
+    console.log('✅ lockout installed');
     vscode.window.showInformationMessage('✅ All your code has been committed automatically!');
   } catch (err: any) {
     // Log the error for debugging

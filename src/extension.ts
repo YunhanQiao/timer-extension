@@ -138,7 +138,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (fs.existsSync(path.join(root, '.pause_timer'))) {
           fs.unlinkSync(path.join(root, '.pause_timer')); // Remove the trigger file
           timerInterval && clearInterval(timerInterval);
-          await vscode.window.showWarningMessage('Commit code successfully, timer paused.', { modal: true }, 'Ok');
+          await vscode.window.showWarningMessage('✅ Commit code successfully, timer paused. Please continue to push the code', { modal: true }, 'Ok');
           return;
         }
 

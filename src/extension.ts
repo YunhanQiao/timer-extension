@@ -138,7 +138,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (remaining <= 300 && remaining > 299) {
           await vscode.window.showWarningMessage(
             '⚠️ Only 5 minutes remaining!',
-            { modal: false },
+            { modal: true },
             'OK'
           );
         }

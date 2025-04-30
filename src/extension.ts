@@ -147,8 +147,8 @@ export function activate(context: vscode.ExtensionContext) {
         if (fs.existsSync(path.join(root, '.pause_timer'))) {
           fs.unlinkSync(path.join(root, '.pause_timer')); // Remove the trigger file
           timerInterval && clearInterval(timerInterval);
-          const choice = await vscode.window.showWarningMessage('✅ You code has been pushed successfully, timer paused. Please click the start when you are ready to begin next task', { modal: true }, 'Start');
-          if (choice === 'Start') {
+          const choice = await vscode.window.showWarningMessage('✅ You code has been pushed successfully, timer paused.', { modal: true }, 'Ok');
+          if (choice === 'Ok') {
             // re-use your existing command which resets state, re-installs hooks, and restarts the interval
             await vscode.commands.executeCommand('extension.startTimer');
           }

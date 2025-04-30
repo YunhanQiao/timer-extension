@@ -113,7 +113,15 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('extension.startTimer', () => {
+    vscode.commands.registerCommand('extension.startTimer', async () => {
+      // Show a pop-up window with task instructions
+      const userResponse = await vscode.window.showInformationMessage(
+        '📋 Please read the task instructions before starting. Click "Start" when ready.',
+        { modal: true },
+        'Start'
+      );
+      // If the user clicks "Start", proceed with starting the timer
+    if (userResponse === 'Start') {
       const branch = getBranch();
       let st = loadState();
       if (!st || st.branch !== branch || st.elapsed >= st.limit) {
@@ -153,8 +161,9 @@ export function activate(context: vscode.ExtensionContext) {
           await onTimerFinished(statusBar, context);
         }
       }, 1000);
-    })
-  );
+    }
+  })
+);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.pauseTimer', () => {

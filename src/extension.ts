@@ -67,9 +67,9 @@ echo "pause" > "${path.join(root, '.pause_timer')}"
 }
 
 async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.ExtensionContext) {
-  const userResponse = await vscode.window.showErrorMessage(
+  await vscode.window.showErrorMessage(
     '⏰ Time’s up! Please stop coding now.',
-    { modal: false },
+    { modal: true },
     'Ok'   
   );
 
@@ -93,7 +93,8 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
     await repo.commit('Auto-commit: time expired', { all: true }); // Commit all changes
     await repo.push(); // Push changes to the remote repository
     installLockout(); // Install the lockout hook
-    vscode.window.showInformationMessage('✅ Changes committed and pushed.');
+    await vscode.window.showErrorMessage(
+      '✅ Changes pushed successfully and timer paused.', { modal: true }, 'Ok');
   } catch (err: any) {
     // Log the error for debugging
     console.error('Error during auto-commit:', err);

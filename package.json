@@ -1,8 +1,9 @@
 {
-  "name": "timer",
-  "displayName": "Timer",
+  "name": "Seal-timer-extension",
+  "displayName": "Seal Timer Extension",
   "description": "Live timer for counting down",
-  "version": "0.0.1",
+  "publisher": "YunhanQiao",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -12,7 +13,11 @@
   "extensionDependencies": [
     "vscode.git"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:extension.startTimer",
+    "onCommand:extension.pauseTimer",
+    "onCommand:extension.showStatus"
+  ],
   "extensionKind": [
     "workspace"
   ],
@@ -21,9 +26,26 @@
     "commands": [
       {
         "command": "extension.startTimer",
-        "title": "Start Countdown Timer"
+        "title": "Start Codespace Timer"
+      },
+      {
+        "command": "extension.pauseTimer",
+        "title": "Pause Codespace Timer"
+      },
+      {
+        "command": "extension.showStatus",
+        "title": "Codespace Timer Status"
       }
-    ]
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "extension.startTimer",
+          "when": "resourceWorkspaceFolder",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -47,6 +69,7 @@
     "@typescript-eslint/parser": "^8.28.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.3.2",
     "esbuild": "^0.25.1",
     "eslint": "^9.23.0",
     "npm-run-all": "^4.1.5",

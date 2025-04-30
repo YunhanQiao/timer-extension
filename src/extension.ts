@@ -8,7 +8,7 @@ const STATE_FILE = path.join(root, '.timer_state.json');
 const LOCKOUT_HOOK = path.join(root, '.git', 'hooks', 'pre-commit');
 const POSTCOMMIT_HOOK = path.join(root, '.git', 'hooks', 'post-commit');
 const BRANCH_LIMITS: { [key: string]: number } = {
-  main: 7 * 60,
+  main: 6 * 60,
   tutorial: 15 * 60,
   addPicture: 30 * 60,
   addDistance: 30 * 60

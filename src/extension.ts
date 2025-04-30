@@ -94,7 +94,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
     await repo.push(); // Push changes to the remote repository
     installLockout(); // Install the lockout hook
     await vscode.window.showErrorMessage(
-      '✅ Changes pushed successfully and timer paused.', { modal: true }, 'Ok');
+      '✅ Changes pushed successfully and timer is up. Please stop coding!', { modal: true }, 'Ok');
   } catch (err: any) {
     // Log the error for debugging
     console.error('Error during auto-commit:', err);
@@ -132,7 +132,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (fs.existsSync(path.join(root, '.pause_timer'))) {
           fs.unlinkSync(path.join(root, '.pause_timer')); // Remove the trigger file
           timerInterval && clearInterval(timerInterval);
-          vscode.window.showInformationMessage('Commit code successfully, timer paused.');
+          await vscode.window.showErrorMessage('Commit code successfully, timer paused.', { modal: true }, 'Ok');
           return;
         }
 

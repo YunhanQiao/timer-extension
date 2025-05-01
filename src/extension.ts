@@ -26,7 +26,6 @@ interface TimerState {
   task:      number;
 }
 
-// Always fetch the current git branch
 function getBranch(): string {
   try {
     return execSync('git branch --show-current', { cwd: root }).toString().trim();
@@ -73,13 +72,9 @@ git push origin
   fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
 }
 
-/**
- * Prompts the user to type exactly "Start <label>"
- * label might be "Task 2" or "warm-up task"
- */
 async function promptForStart(label: string): Promise<boolean> {
   await vscode.window.showInformationMessage(
-    `📋 Please read the instructions for ${label} in Canvas. When you’re ready, type "Start ${label}" exactly below.`,
+    `📋 Please read the instructions for ${label}. When you’re ready, type "Start ${label}" exactly below.`,
     { modal: true }
   );
 
@@ -135,7 +130,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('extension.startTimer', async () => {
       const branch   = getBranch();
       const isWarmup = branch === 'tutorial';
-      const maxTasks = isWarmup ? 1 : (['addDistance','addPicture'].includes(branch) ? 3 : 1);
+      const maxTasks = isWarmup
+        ? 1
+        : (['addDistance','addPicture'].includes(branch) ? 3 : 1);
       const now      = Date.now() / 1000;
 
       // load or initialize state
@@ -148,36 +145,33 @@ export function activate(context: vscode.ExtensionContext) {
           startTime: now,
           task:      1
         };
-      } else {
-        st.startTime = now;
       }
       currentState = st;
       saveState(st);
 
-      // completed all?
+      // if already done
       if (st.task > maxTasks) {
         await vscode.window.showInformationMessage(
-          '🎉 Congratulations! You have completed all tasks for this feature. Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
+          '🎉 You’ve completed all tasks! Your code is pushed—please return to Canvas to submit.',
           { modal: true }
         );
         return;
       }
 
-      // build the label: either "warm-up task" or "Task N"
+      // first prompt
       const label = isWarmup ? 'warm-up task' : `Task ${st.task}`;
       const ready = await promptForStart(label);
       if (!ready) return;
 
-      // reset timer **after** user confirms
+      // reset timer for the very first task
       st.elapsed   = 0;
       st.startTime = Date.now() / 1000;
       saveState(st);
 
-      // show full limit immediately
       statusBar.text = `$(clock) ${formatTime(st.limit)}`;
       statusBar.show();
-
       installPostCommitHook();
+
       timerInterval && clearInterval(timerInterval);
       timerInterval = setInterval(async () => {
         const nowSec       = Date.now() / 1000;
@@ -188,31 +182,36 @@ export function activate(context: vscode.ExtensionContext) {
         statusBar.text = `$(clock) ${formatTime(remaining)}`;
         statusBar.show();
 
-        // handle "next task" click
         const pausePath = path.join(root, '.pause_timer');
         if (fs.existsSync(pausePath)) {
           fs.unlinkSync(pausePath);
-          clearInterval(timerInterval!);
-
           st.task++;
           if (st.task > maxTasks) {
+            clearInterval(timerInterval!);
             await vscode.window.showInformationMessage(
-              '🎉 All tasks complete! Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
+              '🎉 All tasks complete! Your code has been pushed. Return to Canvas to submit.',
               { modal: true }
             );
             return;
           }
 
-          // reset for next
-          st.elapsed   = 0;
+          // prompt next task, without re-entering startTimer
+          const nextLabel = isWarmup ? 'warm-up task' : `Task ${st.task}`;
+          const again     = await promptForStart(nextLabel);
+          if (!again) {
+            clearInterval(timerInterval!);
+            return;
+          }
+
+          // ———————— KEEP elapsed, reset startTime only ————————
           st.startTime = Date.now() / 1000;
           saveState(st);
+          installPostCommitHook();
 
-          const nextLabel = isWarmup ? 'warm-up task' : `Task ${st.task}`;
-          const again = await promptForStart(nextLabel);
-          if (again) {
-            await vscode.commands.executeCommand('extension.startTimer');
-          }
+          // show remaining time instead of full limit
+          const rem = st.limit - st.elapsed;
+          statusBar.text = `$(clock) ${formatTime(rem)}`;
+          statusBar.show();
           return;
         }
 

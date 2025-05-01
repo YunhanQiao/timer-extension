@@ -7,6 +7,7 @@ const root = vscode.workspace.rootPath || '';
 const STATE_FILE = path.join(root, '.timer_state.json');
 const LOCKOUT_HOOK = path.join(root, '.git', 'hooks', 'pre-commit');
 const POSTCOMMIT_HOOK = path.join(root, '.git', 'hooks', 'post-commit');
+
 const BRANCH_LIMITS: { [key: string]: number } = {
   main: 6 * 60,
   tutorial: 15 * 60,
@@ -15,12 +16,14 @@ const BRANCH_LIMITS: { [key: string]: number } = {
 };
 
 let timerInterval: NodeJS.Timeout | undefined;
+let currentState: TimerState;
 
 interface TimerState {
   branch: string;
   elapsed: number;
   limit: number;
   startTime: number;
+  task: number;
 }
 
 function getBranch(): string {
@@ -32,10 +35,15 @@ function getBranch(): string {
 }
 
 function loadState(): TimerState | null {
-  if (fs.existsSync(STATE_FILE)) {
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as TimerState;
-  }
-  return null;
+  if (!fs.existsSync(STATE_FILE)) return null;
+  const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as Partial<TimerState>;
+  return {
+    branch: st.branch!,
+    elapsed: st.elapsed ?? 0,
+    limit: st.limit ?? (BRANCH_LIMITS[st.branch!] ?? 30 * 60),
+    startTime: st.startTime ?? Date.now() / 1000,
+    task: st.task ?? 1
+  };
 }
 
 function saveState(st: TimerState) {
@@ -44,7 +52,7 @@ function saveState(st: TimerState) {
 
 function resetState(branch: string): TimerState {
   const limit = BRANCH_LIMITS[branch] || 30 * 60;
-  return { branch, elapsed: 0, limit, startTime: Date.now() / 1000 };
+  return { branch, elapsed: 0, limit, startTime: Date.now() / 1000, task: 1 };
 }
 
 function formatTime(seconds: number): string {
@@ -54,12 +62,12 @@ function formatTime(seconds: number): string {
 }
 
 function installLockout() {
-  const hook = `#!/bin/sh\necho \"⛔️ Timer expired—no more commits allowed.\"\nexit 1\n`;
+  const hook = `#!/bin/sh\necho "⛔️ Timer expired—no more commits allowed."\nexit 1\n`;
   fs.writeFileSync(LOCKOUT_HOOK, hook);
   fs.chmodSync(LOCKOUT_HOOK, 0o755);
 }
 
-function installPostCommitHook(context: vscode.ExtensionContext) {
+function installPostCommitHook() {
   const hook = `#!/bin/sh
 echo "pause" > "${path.join(root, '.pause_timer')}"
 git push origin
@@ -67,21 +75,17 @@ git push origin
   fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
 }
 
-async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.ExtensionContext) {
-  // 1. stop the interval right away
+async function onTimerFinished(statusBar: vscode.StatusBarItem) {
   clearInterval(timerInterval!);
   statusBar.text = `$(check) 00:00`;
 
-  // 2. show zero time and clear any pause file
-  const pauseTimerPath = path.join(root, '.pause_timer');
-  if (fs.existsSync(pauseTimerPath)) {
-    fs.unlinkSync(pauseTimerPath);
-  }
-  // now show your modal exactly once
+  const pausePath = path.join(root, '.pause_timer');
+  if (fs.existsSync(pausePath)) fs.unlinkSync(pausePath);
+
   await vscode.window.showErrorMessage(
-    '⏰ Time’s up! Please stop coding for current task now. Do not commit any code, this timer will automatically commit all the code for you',
+    '⏰ Time’s up! Please stop coding for the current task now. Do not commit any code – the timer will auto-commit everything for you.',
     { modal: true },
-    'Ok'   
+    'Ok'
   );
 
   try {
@@ -91,21 +95,33 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem, context: vscode.
     const repo = gitApi.repositories[0];
     const branch = repo.state.HEAD!.name!;
 
-    //Commit and push changes
-    console.log('⏳ staging…');
-    await repo.add([]); // Stage all changes
-    console.log('✅ staged, now committing…');
-    await repo.commit('Auto-commit: time expired', { all: true }); // Commit all changes
-    console.log('✅ committed, now pushing…');
-    await repo.push('origin', branch); // Push changes to the remote repository
-    console.log('✅ pushed, now installing lockout hook…');
-    installLockout(); // Install the lockout hook
-    console.log('✅ lockout installed');
+    await repo.add([]);
+    await repo.commit(`Auto-commit: Task ${currentState.task} expired`, { all: true });
+    await repo.push('origin', branch);
+    installLockout();
     vscode.window.showInformationMessage('✅ All your code has been committed automatically!');
   } catch (err: any) {
-    // Log the error for debugging
     console.error('Error during auto-commit:', err);
     vscode.window.showErrorMessage(`Auto-commit failed: ${err.message}`);
+  }
+}
+
+async function promptForStart(task: number): Promise<boolean> {
+  await vscode.window.showInformationMessage(
+    `📋 Please read the instructions for Task ${task} in Canvas. When you’re ready, type "Start task ${task}" exactly below.`,
+    { modal: true }
+  );
+
+  const target = `Start task ${task}`;
+  while (true) {
+    const input = await vscode.window.showInputBox({
+      prompt: `Type "${target}" to begin Task ${task}`,
+      placeHolder: target,
+      ignoreFocusOut: true,
+      validateInput: value => value === target ? null : `Please type exactly: ${target}`
+    });
+    if (input === target) return true;
+    if (input === undefined) return false;
   }
 }
 
@@ -115,25 +131,32 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.startTimer', async () => {
-      // Show a pop-up window with task instructions
-      const userResponse = await vscode.window.showInformationMessage(
-        '📋 Please read the task instructions before starting. Click "Start" when ready.',
-        { modal: true },
-        'Start'
-      );
-      // If the user clicks "Start", proceed with starting the timer
-    if (userResponse === 'Start') {
       const branch = getBranch();
-      let st = loadState();
-      if (!st || st.branch !== branch || st.elapsed >= st.limit) {
+      let st = loadState()!;
+      if (!st || st.branch !== branch) {
         st = resetState(branch);
+      } else if (st.elapsed >= st.limit) {
+        st.elapsed = 0;
+        st.startTime = Date.now() / 1000;
+        st.task += 1;
       } else {
         st.startTime = Date.now() / 1000;
       }
+      currentState = st;
       saveState(st);
 
-      installPostCommitHook(context);
+      if (st.task > 3) {
+        await vscode.window.showInformationMessage(
+          '🎉 Congratulations! You have completed all three tasks for this feature. Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
+          { modal: true }
+        );
+        return;
+      }
 
+      const ready = await promptForStart(st.task);
+      if (!ready) return;
+
+      installPostCommitHook();
       timerInterval && clearInterval(timerInterval);
       timerInterval = setInterval(async () => {
         const now = Date.now() / 1000;
@@ -143,32 +166,26 @@ export function activate(context: vscode.ExtensionContext) {
         statusBar.text = `$(clock) ${formatTime(remaining)}`;
         statusBar.show();
 
-        // Check for the pause trigger file
         if (fs.existsSync(path.join(root, '.pause_timer'))) {
-          fs.unlinkSync(path.join(root, '.pause_timer')); // Remove the trigger file
-          timerInterval && clearInterval(timerInterval);
-          const choice = await vscode.window.showWarningMessage('✅ You code has been pushed successfully, timer paused.', { modal: true }, 'Ok');
-          if (choice === 'Ok') {
-            // re-use your existing command which resets state, re-installs hooks, and restarts the interval
+          fs.unlinkSync(path.join(root, '.pause_timer'));
+          clearInterval(timerInterval!);
+
+          const again = await promptForStart(st.task);
+          if (again) {
             await vscode.commands.executeCommand('extension.startTimer');
           }
           return;
         }
 
         if (remaining <= 300 && remaining > 299) {
-          await vscode.window.showWarningMessage(
-            '⚠️ Only 5 minutes remaining!',
-            { modal: true },
-            'OK'
-          );
+          await vscode.window.showWarningMessage('⚠️ Only 5 minutes remaining!', { modal: true }, 'OK');
         }
         if (remaining <= 0) {
-          await onTimerFinished(statusBar, context);
+          await onTimerFinished(statusBar);
         }
       }, 1000);
-    }
-  })
-);
+    })
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.pauseTimer', () => {

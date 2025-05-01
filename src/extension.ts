@@ -50,11 +50,6 @@ function saveState(st: TimerState) {
   fs.writeFileSync(STATE_FILE, JSON.stringify(st));
 }
 
-function resetState(branch: string): TimerState {
-  const limit = BRANCH_LIMITS[branch] || 30 * 60;
-  return { branch, elapsed: 0, limit, startTime: Date.now() / 1000, task: 1 };
-}
-
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
@@ -62,15 +57,17 @@ function formatTime(seconds: number): string {
 }
 
 function installLockout() {
-  const hook = `#!/bin/sh\necho "⛔️ Timer expired—no more commits allowed."\nexit 1\n`;
-  fs.writeFileSync(LOCKOUT_HOOK, hook);
-  fs.chmodSync(LOCKOUT_HOOK, 0o755);
+  const hook = `#!/bin/sh
+ echo "⛔️ Timer expired—no more commits allowed."
+ exit 1
+`;
+  fs.writeFileSync(LOCKOUT_HOOK, hook, { mode: 0o755 });
 }
 
 function installPostCommitHook() {
   const hook = `#!/bin/sh
-echo "pause" > "${path.join(root, '.pause_timer')}"
-git push origin
+ echo "pause" > "${path.join(root, '.pause_timer')}"
+ git push origin
 `;
   fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
 }
@@ -89,7 +86,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
   );
 
   try {
-    const gitExt = vscode.extensions.getExtension('vscode.git');
+    const gitExt = vscode.extensions.getExtension<any>('vscode.git');
     if (!gitExt) throw new Error('Git extension not found');
     const gitApi = gitExt.exports.getAPI(1);
     const repo = gitApi.repositories[0];
@@ -132,22 +129,21 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.startTimer', async () => {
       const branch = getBranch();
-      let st = loadState()!;
+      const maxTasks = ['addDistance', 'addPicture'].includes(branch) ? 3 : 1;
+      const now = Date.now() / 1000;
+
+      let st = loadState();
       if (!st || st.branch !== branch) {
-        st = resetState(branch);
-      } else if (st.elapsed >= st.limit) {
-        st.elapsed = 0;
-        st.startTime = Date.now() / 1000;
-        st.task += 1;
+        st = { branch, elapsed: 0, limit: BRANCH_LIMITS[branch] || 30 * 60, startTime: now, task: 1 };
       } else {
-        st.startTime = Date.now() / 1000;
+        st.startTime = now;
       }
       currentState = st;
       saveState(st);
 
-      if (st.task > 3) {
+      if (st.task > maxTasks) {
         await vscode.window.showInformationMessage(
-          '🎉 Congratulations! You have completed all three tasks for this feature. Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
+          '🎉 Congratulations! You have completed all tasks for this feature. Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
           { modal: true }
         );
         return;
@@ -166,9 +162,22 @@ export function activate(context: vscode.ExtensionContext) {
         statusBar.text = `$(clock) ${formatTime(remaining)}`;
         statusBar.show();
 
-        if (fs.existsSync(path.join(root, '.pause_timer'))) {
-          fs.unlinkSync(path.join(root, '.pause_timer'));
+        const pausePath = path.join(root, '.pause_timer');
+        if (fs.existsSync(pausePath)) {
+          fs.unlinkSync(pausePath);
           clearInterval(timerInterval!);
+
+          st.task++;
+          if (st.task > maxTasks) {
+            await vscode.window.showInformationMessage(
+              '🎉 All tasks complete! Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
+              { modal: true }
+            );
+            return;
+          }
+
+          st.startTime = Date.now() / 1000;
+          saveState(st);
 
           const again = await promptForStart(st.task);
           if (again) {
@@ -180,6 +189,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (remaining <= 300 && remaining > 299) {
           await vscode.window.showWarningMessage('⚠️ Only 5 minutes remaining!', { modal: true }, 'OK');
         }
+
         if (remaining <= 0) {
           await onTimerFinished(statusBar);
         }

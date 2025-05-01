@@ -9,23 +9,24 @@ const LOCKOUT_HOOK = path.join(root, '.git', 'hooks', 'pre-commit');
 const POSTCOMMIT_HOOK = path.join(root, '.git', 'hooks', 'post-commit');
 
 const BRANCH_LIMITS: { [key: string]: number } = {
-  main: 6 * 60,
-  tutorial: 15 * 60,
+  main:        6 * 60,
+  tutorial:   15 * 60,
   addPicture: 30 * 60,
-  addDistance: 30 * 60
+  addDistance:30 * 60
 };
 
 let timerInterval: NodeJS.Timeout | undefined;
 let currentState: TimerState;
 
 interface TimerState {
-  branch: string;
-  elapsed: number;
-  limit: number;
+  branch:    string;
+  elapsed:   number;
+  limit:     number;
   startTime: number;
-  task: number;
+  task:      number;
 }
 
+// Always fetch the current git branch
 function getBranch(): string {
   try {
     return execSync('git branch --show-current', { cwd: root }).toString().trim();
@@ -38,11 +39,11 @@ function loadState(): TimerState | null {
   if (!fs.existsSync(STATE_FILE)) return null;
   const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as Partial<TimerState>;
   return {
-    branch: st.branch!,
-    elapsed: st.elapsed ?? 0,
-    limit: st.limit ?? (BRANCH_LIMITS[st.branch!] ?? 30 * 60),
+    branch:    st.branch!,
+    elapsed:   st.elapsed   ?? 0,
+    limit:     st.limit     ?? (BRANCH_LIMITS[st.branch!] ?? 30*60),
     startTime: st.startTime ?? Date.now() / 1000,
-    task: st.task ?? 1
+    task:      st.task      ?? 1
   };
 }
 
@@ -50,31 +51,54 @@ function saveState(st: TimerState) {
   fs.writeFileSync(STATE_FILE, JSON.stringify(st));
 }
 
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
 function installLockout() {
   const hook = `#!/bin/sh
- echo "⛔️ Timer expired—no more commits allowed."
- exit 1
+echo "⛔️ Timer expired—no more commits allowed."
+exit 1
 `;
   fs.writeFileSync(LOCKOUT_HOOK, hook, { mode: 0o755 });
 }
 
 function installPostCommitHook() {
   const hook = `#!/bin/sh
- echo "pause" > "${path.join(root, '.pause_timer')}"
- git push origin
+echo "pause" > "${path.join(root,'.pause_timer')}"
+git push origin
 `;
   fs.writeFileSync(POSTCOMMIT_HOOK, hook, { mode: 0o755 });
 }
 
+/**
+ * Prompts the user to type exactly "Start <label>"
+ * label might be "Task 2" or "warm-up task"
+ */
+async function promptForStart(label: string): Promise<boolean> {
+  await vscode.window.showInformationMessage(
+    `📋 Please read the instructions for ${label} in Canvas. When you’re ready, type "Start ${label}" exactly below.`,
+    { modal: true }
+  );
+
+  const target = `Start ${label}`;
+  while (true) {
+    const input = await vscode.window.showInputBox({
+      prompt: `Type "${target}" to begin ${label}`,
+      placeHolder: target,
+      ignoreFocusOut: true,
+      validateInput: value => value === target ? null : `Please type exactly: ${target}`
+    });
+    if (input === target) return true;
+    if (input === undefined) return false;
+  }
+}
+
 async function onTimerFinished(statusBar: vscode.StatusBarItem) {
   clearInterval(timerInterval!);
-  statusBar.text = `$(check) 00:00`;
+  statusBar.text = `$(clock) 00:00`;
 
   const pausePath = path.join(root, '.pause_timer');
   if (fs.existsSync(pausePath)) fs.unlinkSync(pausePath);
@@ -89,7 +113,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
     const gitExt = vscode.extensions.getExtension<any>('vscode.git');
     if (!gitExt) throw new Error('Git extension not found');
     const gitApi = gitExt.exports.getAPI(1);
-    const repo = gitApi.repositories[0];
+    const repo   = gitApi.repositories[0];
     const branch = repo.state.HEAD!.name!;
 
     await repo.add([]);
@@ -103,44 +127,34 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
   }
 }
 
-async function promptForStart(task: number): Promise<boolean> {
-  await vscode.window.showInformationMessage(
-    `📋 Please read the instructions for Task ${task} in Canvas. When you’re ready, type "Start task ${task}" exactly below.`,
-    { modal: true }
-  );
-
-  const target = `Start task ${task}`;
-  while (true) {
-    const input = await vscode.window.showInputBox({
-      prompt: `Type "${target}" to begin Task ${task}`,
-      placeHolder: target,
-      ignoreFocusOut: true,
-      validateInput: value => value === target ? null : `Please type exactly: ${target}`
-    });
-    if (input === target) return true;
-    if (input === undefined) return false;
-  }
-}
-
 export function activate(context: vscode.ExtensionContext) {
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.startTimer', async () => {
-      const branch = getBranch();
-      const maxTasks = ['addDistance', 'addPicture'].includes(branch) ? 3 : 1;
-      const now = Date.now() / 1000;
+      const branch   = getBranch();
+      const isWarmup = branch === 'tutorial';
+      const maxTasks = isWarmup ? 1 : (['addDistance','addPicture'].includes(branch) ? 3 : 1);
+      const now      = Date.now() / 1000;
 
+      // load or initialize state
       let st = loadState();
       if (!st || st.branch !== branch) {
-        st = { branch, elapsed: 0, limit: BRANCH_LIMITS[branch] || 30 * 60, startTime: now, task: 1 };
+        st = {
+          branch,
+          elapsed:   0,
+          limit:     BRANCH_LIMITS[branch] ?? 30*60,
+          startTime: now,
+          task:      1
+        };
       } else {
         st.startTime = now;
       }
       currentState = st;
       saveState(st);
 
+      // completed all?
       if (st.task > maxTasks) {
         await vscode.window.showInformationMessage(
           '🎉 Congratulations! You have completed all tasks for this feature. Your code has been pushed. Please stop recording your video, return to Canvas to provide a link to your recording, and then move on to the next lab item.',
@@ -149,19 +163,32 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const ready = await promptForStart(st.task);
+      // build the label: either "warm-up task" or "Task N"
+      const label = isWarmup ? 'warm-up task' : `Task ${st.task}`;
+      const ready = await promptForStart(label);
       if (!ready) return;
+
+      // reset timer **after** user confirms
+      st.elapsed   = 0;
+      st.startTime = Date.now() / 1000;
+      saveState(st);
+
+      // show full limit immediately
+      statusBar.text = `$(clock) ${formatTime(st.limit)}`;
+      statusBar.show();
 
       installPostCommitHook();
       timerInterval && clearInterval(timerInterval);
       timerInterval = setInterval(async () => {
-        const now = Date.now() / 1000;
-        const totalElapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
-        const remaining = st.limit - totalElapsed;
+        const nowSec       = Date.now() / 1000;
+        const totalElapsed = Math.min(st.limit, st.elapsed + (nowSec - st.startTime));
+        const remaining    = st.limit - totalElapsed;
+
         saveState({ ...st, elapsed: totalElapsed });
         statusBar.text = `$(clock) ${formatTime(remaining)}`;
         statusBar.show();
 
+        // handle "next task" click
         const pausePath = path.join(root, '.pause_timer');
         if (fs.existsSync(pausePath)) {
           fs.unlinkSync(pausePath);
@@ -176,10 +203,13 @@ export function activate(context: vscode.ExtensionContext) {
             return;
           }
 
+          // reset for next
+          st.elapsed   = 0;
           st.startTime = Date.now() / 1000;
           saveState(st);
 
-          const again = await promptForStart(st.task);
+          const nextLabel = isWarmup ? 'warm-up task' : `Task ${st.task}`;
+          const again = await promptForStart(nextLabel);
           if (again) {
             await vscode.commands.executeCommand('extension.startTimer');
           }
@@ -189,7 +219,6 @@ export function activate(context: vscode.ExtensionContext) {
         if (remaining <= 300 && remaining > 299) {
           await vscode.window.showWarningMessage('⚠️ Only 5 minutes remaining!', { modal: true }, 'OK');
         }
-
         if (remaining <= 0) {
           await onTimerFinished(statusBar);
         }
@@ -201,13 +230,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('extension.pauseTimer', () => {
       const st = loadState();
       if (!st) return vscode.window.showInformationMessage('Timer not started.');
-      const now = Date.now() / 1000;
-      const totalElapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
-      saveState({ ...st, elapsed: totalElapsed });
+      const now     = Date.now() / 1000;
+      const elapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
+      saveState({ ...st, elapsed });
       timerInterval && clearInterval(timerInterval);
-      statusBar.text = `$(clock) ${formatTime(st.limit - totalElapsed)}`;
+      statusBar.text = `$(clock) ${formatTime(st.limit - elapsed)}`;
       statusBar.show();
-      vscode.window.showInformationMessage(`⏸️ Timer paused. ${formatTime(st.limit - totalElapsed)} remaining.`);
+      vscode.window.showInformationMessage(`⏸️ Timer paused. ${formatTime(st.limit - elapsed)} remaining.`);
     })
   );
 
@@ -215,10 +244,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('extension.showStatus', () => {
       const st = loadState();
       if (!st) return vscode.window.showInformationMessage('Timer not started.');
-      const now = Date.now() / 1000;
-      const totalElapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
-      const remaining = st.limit - totalElapsed;
-      const running = !!timerInterval;
+      const now     = Date.now() / 1000;
+      const elapsed = Math.min(st.limit, st.elapsed + (now - st.startTime));
+      const remaining = st.limit - elapsed;
+      const running   = !!timerInterval;
       vscode.window.showInformationMessage(
         `[${st.branch}] ${running ? 'Running' : 'Paused'} | Remaining: ${formatTime(remaining)}`
       );

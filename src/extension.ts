@@ -78,9 +78,8 @@ async function promptForStart(label: string): Promise<boolean> {
 
   // Show a modal message first to get the user's attention
   await vscode.window.showInformationMessage(
-    `📋 Please read the instructions for ${label}. When you're ready, you'll need to type "${target}" exactly.`,
-    { modal: true },
-    'Continue'
+    `📋 Please read the instructions for ${label}. When you're ready to begin, type "${target}" below (the text must match exactly) and then click the "Start" button`,
+    { modal: true }
   );
 
   function createPanel(): vscode.WebviewPanel {
@@ -167,8 +166,8 @@ async function promptForStart(label: string): Promise<boolean> {
       <div class="backdrop">
         <div class="dialog">
           <h2>Start Task</h2>
-          <p>📋 Read the instructions for ${label}.<br/>
-             When you're ready, type exactly:</p>
+          <p>📋 Please read the instructions for Task ${label}.<br/>
+             When you're ready to begin the task, type ${target} below (the text must match exactly) and then click the "Start" button.</p>
           <code>${target}</code>
           <input id="txt" placeholder="${target}" autofocus />
           <button id="btn" disabled>Start</button>
@@ -237,8 +236,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
 
   await vscode.window.showErrorMessage(
     '⏰ Time’s up! Please stop coding for the current task now. Do not commit any code – the timer will auto-commit everything for you.',
-    { modal: true },
-    'Ok'
+    { modal: true }
   );
 
   try {
@@ -283,8 +281,11 @@ async function runTimerLoop(
       statusBar.text = `$(clock) ${formatTime(remaining)} (paused)`;
       statusBar.show();
 
+      // Modified message based on branch
       await vscode.window.showInformationMessage(
-        `✅ Task ${st.task} has been committed and pushed successfully!`,
+        isWarmup 
+          ? `✅ Warm-up task has been committed and pushed successfully! Please press ok to continue.`
+          : `✅ Task ${st.task} has been committed and pushed successfully! Please press ok to move on to the next task.`,
         { modal: true }
       );
 
@@ -368,8 +369,11 @@ export function activate(context: vscode.ExtensionContext) {
       if (fs.existsSync(pausePath)) {
         fs.unlinkSync(pausePath);
 
+        // Modified message based on branch
         await vscode.window.showInformationMessage(
-          `✅ Task ${st.task} has been committed and pushed successfully!`,
+          isWarmup 
+            ? `✅ Warm-up task has been committed and pushed successfully! Please press ok to continue.`
+            : `✅ Task ${st.task} has been committed and pushed successfully! Please press ok to move on to the next task.`,
           { modal: true }
         );
         st.task++;

@@ -77,10 +77,10 @@ async function promptForStart(label: string): Promise<boolean> {
   const target = `Start ${label}`;
 
   // Show a modal message first to get the user's attention
-  await vscode.window.showInformationMessage(
-    `📋 Please read the instructions for ${label}. When you're ready to begin, type "${target}" below (the text must match exactly) and then click the "Start" button`,
-    { modal: true }
-  );
+  // await vscode.window.showInformationMessage(
+  //   `📋 Please read the instructions for ${label}. When you're ready to begin, type "${target}" below (the text must match exactly) and then click the "Start" button`,
+  //   { modal: true }
+  // );
 
   function createPanel(): vscode.WebviewPanel {
     const panel = vscode.window.createWebviewPanel(
@@ -166,8 +166,8 @@ async function promptForStart(label: string): Promise<boolean> {
       <div class="backdrop">
         <div class="dialog">
           <h2>Start Task</h2>
-          <p>📋 Please read the instructions for Task ${label}.<br/>
-             When you're ready to begin the task, type ${target} below (the text must match exactly) and then click the "Start" button.</p>
+          <p>📋 Please read the instructions for ${label}.<br/>
+             When you're ready to begin the task, type "${target}" below (the text must match exactly) and then click the "Start" button.</p>
           <code>${target}</code>
           <input id="txt" placeholder="${target}" autofocus />
           <button id="btn" disabled>Start</button>
@@ -444,5 +444,5 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  // nothing needed here
+
 }

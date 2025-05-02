@@ -251,6 +251,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
     await repo.push('origin', branch);
     installLockout();
     vscode.window.showInformationMessage('✅ All your code has been committed automatically!');
+    if (fs.existsSync(pausePath)) fs.unlinkSync(pausePath);
   } catch (err: any) {
     console.error('Error during auto-commit:', err);
     vscode.window.showErrorMessage(`Auto-commit failed: ${err.message}`);

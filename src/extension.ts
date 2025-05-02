@@ -37,13 +37,21 @@ function getBranch(): string {
 
 function loadState(): TimerState | null {
   if (!fs.existsSync(STATE_FILE)) return null;
-  const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as Partial<TimerState>;
+
+  const disk = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as Partial<TimerState>;
+  const pausePath = path.join(root, '.pause_timer');
+
+  // If saved branch differs from current, clear any leftover pause marker
+  if (disk.branch && disk.branch !== getBranch() && fs.existsSync(pausePath)) {
+    fs.unlinkSync(pausePath);
+  }
+
   return {
-    branch:    st.branch!,
-    elapsed:   st.elapsed   ?? 0,
-    limit:     st.limit     ?? (BRANCH_LIMITS[st.branch!] ?? 30*60),
-    startTime: st.startTime ?? Date.now() / 1000,
-    task:      st.task      ?? 1
+    branch:    disk.branch!,
+    elapsed:   disk.elapsed   ?? 0,
+    limit:     disk.limit     ?? (BRANCH_LIMITS[disk.branch!] ?? 30*60),
+    startTime: disk.startTime ?? Date.now() / 1000,
+    task:      disk.task      ?? 1
   };
 }
 
@@ -76,98 +84,30 @@ git push origin
 async function promptForStart(label: string): Promise<boolean> {
   const target = `Start ${label}`;
 
-  // Show a modal message first to get the user's attention
-  // await vscode.window.showInformationMessage(
-  //   `📋 Please read the instructions for ${label}. When you're ready to begin, type "${target}" below (the text must match exactly) and then click the "Start" button`,
-  //   { modal: true }
-  // );
-
   function createPanel(): vscode.WebviewPanel {
     const panel = vscode.window.createWebviewPanel(
       'startTask',
       `Start ${label}`,
-      // Use a dedicated view column to make it more prominent
       vscode.ViewColumn.One,
-      { 
-        enableScripts: true, 
-        retainContextWhenHidden: true
-      }
+      { enableScripts: true, retainContextWhenHidden: true }
     );
-    
+
     panel.webview.html = `
       <style>
-        body, html { 
-          margin: 0; 
-          padding: 0; 
-          height: 100%; 
-          background-color: rgba(0,0,0,0.85); /* Darker background */
-          color: white;
-          font-family: system-ui, -apple-system, sans-serif;
-        }
-        .backdrop {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: rgba(0,0,0,0.7);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .dialog {
-          background: #2d2d2d; /* Darker dialog */
-          padding: 2rem; 
-          border-radius: 8px; 
-          width: 400px;
-          box-shadow: 0 0 20px rgba(0,0,0,0.5);
-          border: 1px solid #555;
-        }
-        h2 {
-          margin-top: 0;
-          color: #ffffff;
-        }
-        code {
-          display: block;
-          background: #444;
-          padding: 0.75rem;
-          margin: 1rem 0;
-          border-radius: 4px;
-          font-size: 1.1rem;
-          text-align: center;
-          color: #00ff00;
-        }
-        input { 
-          width: 100%; 
-          padding: 0.75rem; 
-          margin: 1rem 0; 
-          background: #333;
-          color: white;
-          border: 1px solid #666;
-          border-radius: 4px;
-          font-size: 1rem;
-          box-sizing: border-box;
-        }
-        button { 
-          width: 100%; 
-          padding: 0.75rem; 
-          background: #0078d4; 
-          color: white;
-          border: none;
-          border-radius: 4px;
-          font-size: 1rem;
-          cursor: pointer;
-        }
-        button:disabled {
-          background: #444;
-          cursor: not-allowed;
-        }
+        body, html { margin: 0; padding: 0; height: 100%; background-color: rgba(0,0,0,0.85); color: white; font-family: system-ui, -apple-system, sans-serif; }
+        .backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; }
+        .dialog { background: #2d2d2d; padding: 2rem; border-radius: 8px; width: 400px; box-shadow: 0 0 20px rgba(0,0,0,0.5); border: 1px solid #555; }
+        h2 { margin-top: 0; color: #ffffff; }
+        code { display: block; background: #444; padding: 0.75rem; margin: 1rem 0; border-radius: 4px; font-size: 1.1rem; text-align: center; color: #00ff00; }
+        input { width: 100%; padding: 0.75rem; margin: 1rem 0; background: #333; color: white; border: 1px solid #666; border-radius: 4px; font-size: 1rem; box-sizing: border-box; }
+        button { width: 100%; padding: 0.75rem; background: #0078d4; color: white; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; }
+        button:disabled { background: #444; cursor: not-allowed; }
       </style>
       <div class="backdrop">
         <div class="dialog">
           <h2>Start Task</h2>
-          <p>📋 Please read the instructions for ${label}.<br/>
-             When you're ready to begin the task, type "${target}" below (the text must match exactly) and then click the "Start" button.</p>
+          <p>📋 Please read the instructions for ${label} on Canvas.<br/>
+             When you're ready, type "${target}" below and click "Start".</p>
           <code>${target}</code>
           <input id="txt" placeholder="${target}" autofocus />
           <button id="btn" disabled>Start</button>
@@ -177,20 +117,10 @@ async function promptForStart(label: string): Promise<boolean> {
         const vscode = acquireVsCodeApi();
         const input = document.getElementById('txt');
         const btn = document.getElementById('btn');
-        
-        // Focus the input field immediately
         setTimeout(() => input.focus(), 100);
-        
-        input.addEventListener('input', () => {
-          btn.disabled = input.value !== '${target}';
-        });
-        
-        btn.addEventListener('click', () => {
-          vscode.postMessage({ command: 'start', value: input.value });
-        });
-        
-        // Add enter key support
-        input.addEventListener('keyup', (e) => {
+        input.addEventListener('input', () => btn.disabled = input.value !== '${target}');
+        btn.addEventListener('click', () => vscode.postMessage({ command: 'start', value: input.value }));
+        input.addEventListener('keyup', e => {
           if (e.key === 'Enter' && input.value === '${target}') {
             vscode.postMessage({ command: 'start', value: input.value });
           }
@@ -202,28 +132,23 @@ async function promptForStart(label: string): Promise<boolean> {
 
   return new Promise<boolean>(resolve => {
     let panel = createPanel();
-    let wasSuccessful = false; // Flag to track if the user typed the correct command
-
-    const attachHandlers = (p: vscode.WebviewPanel) => {
+    let success = false;
+    const attach = (p: vscode.WebviewPanel) => {
       p.webview.onDidReceiveMessage(msg => {
         if (msg.command === 'start' && msg.value === target) {
-          wasSuccessful = true;
+          success = true;
           resolve(true);
           p.dispose();
         }
       });
       p.onDidDispose(() => {
-        if (!wasSuccessful) {
+        if (!success) {
           vscode.window.showErrorMessage(`You must type "${target}" to proceed.`)
-          .then(() => {
-            panel = createPanel();
-            attachHandlers(panel);
-          });
+            .then(() => { panel = createPanel(); attach(panel); });
         }
       });
     };
-
-    attachHandlers(panel);
+    attach(panel);
   });
 }
 
@@ -235,7 +160,7 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
   if (fs.existsSync(pausePath)) fs.unlinkSync(pausePath);
 
   await vscode.window.showErrorMessage(
-    '⏰ Time’s up! Please stop coding for the current task now. Do not commit any code – the timer will auto-commit everything for you.',
+    '⏰ Time’s up! Please stop coding—your code will be auto-committed.',
     { modal: true }
   );
 
@@ -250,10 +175,9 @@ async function onTimerFinished(statusBar: vscode.StatusBarItem) {
     await repo.commit(`Auto-commit: Time expired`, { all: true });
     await repo.push('origin', branch);
     installLockout();
-    vscode.window.showInformationMessage('✅ All your code has been committed automatically!');
-    if (fs.existsSync(pausePath)) fs.unlinkSync(pausePath);
+    vscode.window.showInformationMessage('✅ Your code has been auto-committed!');
   } catch (err: any) {
-    console.error('Error during auto-commit:', err);
+    console.error('Auto-commit error:', err);
     vscode.window.showErrorMessage(`Auto-commit failed: ${err.message}`);
   }
 }
@@ -275,18 +199,16 @@ async function runTimerLoop(
 
     if (fs.existsSync(pausePath)) {
       fs.unlinkSync(pausePath);
-
       st.elapsed = totalElapsed;
       saveState(st);
 
       statusBar.text = `$(clock) ${formatTime(remaining)} (paused)`;
       statusBar.show();
 
-      // Modified message based on branch
       await vscode.window.showInformationMessage(
-        isWarmup 
-          ? `✅ Warm-up task has been committed and pushed successfully! Please press ok to continue.`
-          : `✅ Task ${st.task} has been committed and pushed successfully! Please press ok to move on to the next task.`,
+        isWarmup
+          ? `✅ Warm-up task committed! Press OK to continue.`
+          : `✅ Task ${st.task} committed! Press OK for next task.`,
         { modal: true }
       );
 
@@ -294,15 +216,14 @@ async function runTimerLoop(
       saveState(st);
       if (st.task > maxTasks) {
         await vscode.window.showInformationMessage(
-          '🎉 Congratulations! You have completed all tasks for this feature. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab.',
+          '🎉 Congratulations! You have completed all three tasks for this feature. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab."',
           { modal: true }
         );
         return;
       }
 
       const nextLabel = isWarmup ? 'warm-up task' : `Task ${st.task}`;
-      const again     = await promptForStart(nextLabel);
-      if (!again) return;
+      if (!(await promptForStart(nextLabel))) return;
 
       st.startTime = Date.now() / 1000;
       saveState(st);
@@ -318,11 +239,7 @@ async function runTimerLoop(
     saveState({ ...st, elapsed: totalElapsed });
 
     if (remaining <= 300 && remaining > 299) {
-      await vscode.window.showWarningMessage(
-        '⚠️ Only 5 minutes remaining!',
-        { modal: true },
-        'OK'
-      );
+      await vscode.window.showWarningMessage('⚠️ Only 5 minutes remaining!', { modal: true }, 'OK');
     }
 
     if (remaining <= 0) {
@@ -338,73 +255,40 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.startTimer', async () => {
-      // Remove any lingering pre-commit hook so new branches can commit
-      if (fs.existsSync(LOCKOUT_HOOK)) {
-        fs.unlinkSync(LOCKOUT_HOOK);
-      }
+      // 1) clear old lockout
+      if (fs.existsSync(LOCKOUT_HOOK)) fs.unlinkSync(LOCKOUT_HOOK);
+      // 2) clear stale pause marker
+      const pausePath = path.join(root, '.pause_timer');
+      if (fs.existsSync(pausePath)) fs.unlinkSync(pausePath);
+
+      // 3) init state
       const branch   = getBranch();
       const isWarmup = branch === 'tutorial';
-      const maxTasks = isWarmup
-        ? 1
-        : (['addDistance','addPicture'].includes(branch) ? 3 : 1);
+      const maxTasks = isWarmup ? 1 : (['addDistance','addPicture'].includes(branch) ? 3 : 1);
       const now      = Date.now() / 1000;
 
       let st = loadState();
       if (!st || st.branch !== branch) {
-        st = {
-          branch,
-          elapsed:   0,
-          limit:     BRANCH_LIMITS[branch] ?? 30*60,
-          startTime: now,
-          task:      1
-        };
+        st = { branch, elapsed: 0, limit: BRANCH_LIMITS[branch] ?? 30*60, startTime: now, task: 1 };
       }
       currentState = st;
       saveState(st);
 
       if (st.task > maxTasks) {
-        await vscode.window.showInformationMessage(
-          '🎉 Congratulations! You have completed all tasks for this feature. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab.',
+        return vscode.window.showInformationMessage(
+          '🎉 All tasks complete! Submit your work.',
           { modal: true }
         );
-        return;
       }
 
-      const pausePath = path.join(root, '.pause_timer');
-      if (fs.existsSync(pausePath)) {
-        fs.unlinkSync(pausePath);
+      // prompt to start first or next task
+      const label = isWarmup ? 'warm-up task' : `Task ${st.task}`;
+      if (!(await promptForStart(label))) return;
 
-        // Modified message based on branch
-        await vscode.window.showInformationMessage(
-          isWarmup 
-            ? `✅ Warm-up task has been committed and pushed successfully! Please press ok to continue.`
-            : `✅ Task ${st.task} has been committed and pushed successfully! Please press ok to move on to the next task.`,
-          { modal: true }
-        );
-        st.task++;
-        if (st.task > maxTasks) {
-          await vscode.window.showInformationMessage(
-            '🎉 Congratulations! You have completed all tasks for this feature. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab.',
-            { modal: true }
-          );
-          return;
-        }
-
-        const nextLabel = isWarmup ? 'warm-up task' : `Task ${st.task}`;
-        const again     = await promptForStart(nextLabel);
-        if (!again) return;
-
-        st.startTime = Date.now() / 1000;
-        saveState(st);
-      } else {
-        const label = isWarmup ? 'warm-up task' : `Task ${st.task}`;
-        const ready = await promptForStart(label);
-        if (!ready) return;
-
-        st.elapsed   = 0;
-        st.startTime = Date.now() / 1000;
-        saveState(st);
-      }
+      // reset elapsed on fresh start
+      st.elapsed   = 0;
+      st.startTime = Date.now() / 1000;
+      saveState(st);
 
       statusBar.text = `$(clock) ${formatTime(st.limit - st.elapsed)}`;
       statusBar.show();
@@ -448,6 +332,4 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-export function deactivate() {
-
-}
+export function deactivate() {}

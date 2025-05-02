@@ -338,6 +338,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('extension.startTimer', async () => {
+      // Remove any lingering pre-commit hook so new branches can commit
+      if (fs.existsSync(LOCKOUT_HOOK)) {
+        fs.unlinkSync(LOCKOUT_HOOK);
+      }
       const branch   = getBranch();
       const isWarmup = branch === 'tutorial';
       const maxTasks = isWarmup

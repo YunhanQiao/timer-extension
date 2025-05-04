@@ -216,7 +216,9 @@ async function runTimerLoop(
       saveState(st);
       if (st.task > maxTasks) {
         await vscode.window.showInformationMessage(
-          '🎉 Congratulations! You have completed all three tasks for this feature. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab."',
+        isWarmup
+          ? '🎉 Congratulations! You have completed the tutorial. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab.'
+          : '🎉 Congratulations! You have completed all three tasks for this feature. You code has been pushed. Please stop recording your video, return to Canvas to provide a link to your video recording, and then move on to the next item in the lab.',
           { modal: true }
         );
         return;

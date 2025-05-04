@@ -4,7 +4,7 @@
   "description": "Live timer for counting down",
   "publisher": "YunhanQiao",
   "icon": "images/icon.png",
-  "version": "0.0.26",
+  "version": "0.0.31",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -15,6 +15,7 @@
     "vscode.git"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:extension.startTimer",
     "onCommand:extension.pauseTimer",
     "onCommand:extension.showStatus"
